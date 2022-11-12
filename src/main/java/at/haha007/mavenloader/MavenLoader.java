@@ -101,14 +101,16 @@ public class MavenLoader {
         es.shutdown();
         try {
             es.awaitTermination(10, TimeUnit.MINUTES);
+            wait(10);
         } catch (InterruptedException e) {
             throw new IOException("Timeout while trying to download dependencies", e);
         }
     }
 
     private void addDependency(JsonObject json) {
+        if (!json.has("repository"))
+            json.addProperty("repository", "https://repo1.maven.org/maven2/");
         String repository = json.get("repository").getAsString();
-        if (repository == null) repository = "https://repo1.maven.org/maven2/";
         if (!repository.endsWith("/")) repository += "/";
 
         String group = json.get("group").getAsString().replace(".", "/");
@@ -204,15 +206,15 @@ public class MavenLoader {
         String fileName = url.getPath();
         fileName = fileName.substring(fileName.lastIndexOf('/') + 1);
         File tempFile = new File(folder, fileName + ".temp");
-//        if (!tempFile.exists()) tempFile.createNewFile();
-        plugin.getLogger().info("Loading library: " + url);
-        Files.copy(url.openStream(), tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
         File jarFile = new File(folder, fileName);
-//        if (!jarFile.exists()) jarFile.createNewFile();
-        JarRelocator relocator = new JarRelocator(tempFile, jarFile, relocations);
-        relocator.run();
-        tempFile.delete();
-        if (!jarFile.exists()) throw new IOException();
+        plugin.getLogger().info("Loading library: " + url);
+        if (!jarFile.exists()) {
+            Files.copy(url.openStream(), tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            JarRelocator relocator = new JarRelocator(tempFile, jarFile, relocations);
+            relocator.run();
+            tempFile.delete();
+            if (!jarFile.exists()) throw new IOException();
+        }
         unopenedURLs.add(jarFile.toURI().toURL());
         pathURLs.add(jarFile.toURI().toURL());
     }
