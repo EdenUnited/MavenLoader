@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.*;
 
-public class MavenLoader {
+public class MavenLoader implements AutoCloseable {
     private static final sun.misc.Unsafe UNSAFE;
 
     static {
@@ -51,11 +51,17 @@ public class MavenLoader {
     private final JavaPlugin plugin;
     private final Collection<URL> unopenedURLs;
     private final Collection<URL> pathURLs;
+    private final List<URL> addedJars = new ArrayList<>();
     private final List<Relocation> relocations;
 
-    public static void loadFromJsonResource(JavaPlugin plugin, String resourceName) throws IOException {
+    public static MavenLoader loadFromJsonResource(JavaPlugin plugin, String resourceName) throws IOException {
         String jsonString = new String(Objects.requireNonNull(plugin.getResource(resourceName)).readAllBytes(), StandardCharsets.UTF_8);
-        new MavenLoader(plugin, jsonString);
+        return new MavenLoader(plugin, jsonString);
+    }
+
+    public void close() {
+        unopenedURLs.removeAll(addedJars);
+        pathURLs.removeAll(addedJars);
     }
 
     private static Object fetchField(final Class<?> clazz, final Object object, final String name) throws NoSuchFieldException {
@@ -63,7 +69,6 @@ public class MavenLoader {
         long offset = UNSAFE.objectFieldOffset(field);
         return UNSAFE.getObject(object, offset);
     }
-
 
     @SuppressWarnings("unchecked") //generics cant be checked at runtime
     private MavenLoader(JavaPlugin plugin, String jsonString) throws IOException {
@@ -224,8 +229,10 @@ public class MavenLoader {
 
     private synchronized boolean addFile(File file) {
         try {
-            unopenedURLs.add(file.toURI().toURL());
-            pathURLs.add(file.toURI().toURL());
+            URL url = file.toURI().toURL();
+            addedJars.add(url);
+            unopenedURLs.add(url);
+            pathURLs.add(url);
             return true;
         } catch (MalformedURLException e) {
             return false;
@@ -276,6 +283,8 @@ public class MavenLoader {
             }
 
             //download
+            plugin.getLogger().info("Library not cached, starting download.");
+            plugin.getLogger().info(repository + " -> " + groupId + ":" + artifactId + ":" + version);
             if (!download()) {
                 return false;
             }
@@ -290,7 +299,7 @@ public class MavenLoader {
             URL url = jarDownloadUrl();
             if (url == null) return false;
             File jarFile = jarFile();
-            if(!jarFile.exists()) {
+            if (!jarFile.exists()) {
                 try {
                     jarFile.getParentFile().mkdirs();
                     jarFile.createNewFile();
@@ -299,7 +308,7 @@ public class MavenLoader {
                 }
             }
             File tempFile = tempFile();
-            if(!tempFile.exists()) {
+            if (!tempFile.exists()) {
                 try {
                     jarFile.getParentFile().mkdirs();
                     tempFile.createNewFile();
